@@ -1,3 +1,4 @@
+local UILib = {}
 -- services
 local players = game:GetService("Players")
 local tweenService = game:GetService("TweenService")
@@ -32,14 +33,14 @@ function Library:Init(options)
 	options = Library:validate({
 		name = "UI Library Test"
 	}, options or {})
-	
+
 	local GUI = {
 		CurrentTab = nil
 	}
-	
+
 	-- Main Frame
 	do
-		
+
 		-- StarterGui.MyLibrary
 		GUI["1"] = Instance.new("ScreenGui", runService:IsStudio() and players.LocalPlayer:WaitForChild("PlayerGui") or coreGui);
 		GUI["1"]["Name"] = [[MyLibrary]];
@@ -134,7 +135,7 @@ function Library:Init(options)
 		GUI["a"]["Size"] = UDim2.new(1, 0, 0, 1);
 		GUI["a"]["Position"] = UDim2.new(0, 0, 1, 0);
 		GUI["a"]["Name"] = [[Line]];
-		
+
 		-- StarterGui.MyLibrary.Main.ContentContainer
 		GUI["1b"] = Instance.new("Frame", GUI["2"]);
 		GUI["1b"]["BackgroundColor3"] = Color3.fromRGB(55, 55, 55);
@@ -144,10 +145,10 @@ function Library:Init(options)
 		GUI["1b"]["Position"] = UDim2.new(1, -6, 0, 36);
 		GUI["1b"]["Name"] = [[ContentContainer]];
 	end
-	
+
 	-- Navigation
 	do
-		
+
 		-- StarterGui.MyLibrary.Main.Navigation
 		GUI["d"] = Instance.new("Frame", GUI["2"]);
 		GUI["d"]["BorderSizePixel"] = 0;
@@ -194,7 +195,7 @@ function Library:Init(options)
 		GUI["13"] = Instance.new("UIListLayout", GUI["11"]);
 		GUI["13"]["Padding"] = UDim.new(0, 1);
 		GUI["13"]["SortOrder"] = Enum.SortOrder.LayoutOrder;
-		
+
 		-- StarterGui.MyLibrary.Main.Navigation.Line
 		GUI["1a"] = Instance.new("Frame", GUI["d"]);
 		GUI["1a"]["BorderSizePixel"] = 0;
@@ -202,21 +203,21 @@ function Library:Init(options)
 		GUI["1a"]["Size"] = UDim2.new(0, 1, 1, 0);
 		GUI["1a"]["Position"] = UDim2.new(1, 0, 0, 0);
 		GUI["1a"]["Name"] = [[Line]];
-		
-		
+
+
 	end
-	
+
 	function GUI:Tab(options)
 		options = Library:validate({
 			name = "Preview Tab",
 			icon = "rbxassetid://10888331510"
 		}, options or {})
-		
+
 		local Tab = {
 			Hover = false,
 			Active = false
 		}
-	
+
 		-- Render
 		do
 			-- StarterGui.MyLibrary.Main.Navigation.ButtonHolder.Inactive
@@ -246,7 +247,7 @@ function Library:Init(options)
 			Tab["19"]["Name"] = [[Icon]];
 			Tab["19"]["BackgroundTransparency"] = 1;
 			Tab["19"]["Position"] = UDim2.new(0, -24, 0.5, 0);
-			
+
 			-- StarterGui.MyLibrary.Main.ContentContainer.HomeTab
 			Tab["1c"] = Instance.new("ScrollingFrame", GUI["1b"]);
 			Tab["1c"]["BorderSizePixel"] = 0;
@@ -258,20 +259,20 @@ function Library:Init(options)
 			Tab["1c"]["Name"] = [[HomeTab]];
 			Tab["1c"]["SelectionGroup"] = false;
 			Tab["1c"]["Visible"] = false;
-			
+
 			-- StarterGui.MyLibrary.Main.ContentContainer.HomeTab.UIPadding
 			Tab["23"] = Instance.new("UIPadding", Tab["1c"]);
 			Tab["23"]["PaddingTop"] = UDim.new(0, 1);
 			Tab["23"]["PaddingRight"] = UDim.new(0, 1);
 			Tab["23"]["PaddingBottom"] = UDim.new(0, 1);
 			Tab["23"]["PaddingLeft"] = UDim.new(0, 1);
-			
+
 			-- StarterGui.MyLibrary.Main.ContentContainer.HomeTab.UIListLayout
 			GUI["2b"] = Instance.new("UIListLayout", Tab["1c"]);
 			GUI["2b"]["Padding"] = UDim.new(0, 6);
 			GUI["2b"]["SortOrder"] = Enum.SortOrder.LayoutOrder;
 		end
-		
+
 		-- Methods
 		function Tab:Activate()
 			if not Tab.Active then
@@ -284,11 +285,11 @@ function Library:Init(options)
 				Library:tween(Tab["17"], {TextColor3 = Color3.fromRGB(255, 255, 255)})
 				Library:tween(Tab["19"], {ImageColor3 = Color3.fromRGB(255, 255, 255)})
 				Tab["1c"].Visible = true
-				
+
 				GUI.CurrentTab = Tab
 			end
 		end
-		
+
 		function Tab:Deactivate()
 			if Tab.Active then
 				Tab.Active = false
@@ -298,7 +299,7 @@ function Library:Init(options)
 				Tab["1c"].Visible = false
 			end
 		end
-		
+
 		-- Logic
 		do
 			Tab["17"].MouseEnter:Connect(function()
@@ -333,18 +334,18 @@ function Library:Init(options)
 				Tab:Activate()
 			end
 		end
-		
+
 		function Tab:Button(options)
 			options = Library:validate({
 				name = "Preview Button",
 				callback = function() end
 			}, options or {})
-			
+
 			local Button = {
 				Hover = false,
 				MouseDown = false
 			}
-			
+
 			-- Render
 			do
 				-- StarterGui.MyLibrary.Main.ContentContainer.HomeTab.Button
@@ -391,36 +392,36 @@ function Library:Init(options)
 				Button["22"]["BackgroundTransparency"] = 1;
 				Button["22"]["Position"] = UDim2.new(1, 0, 0, 0);
 			end
-			
+
 			-- Methods
 			function Button:SetText(text)
 				Button["20"].Text = text
 				options.name = text
 			end
-			
+
 			function Button:SetCallback(fn)
 				options.callback = fn
 			end
-			
+
 			-- Logic
 			do
 				Button["1d"].MouseEnter:Connect(function()
 					Button.Hover = true
-					
+
 					Library:tween(Button["1f"], {Color = Color3.fromRGB(102, 102, 102)})
 				end)
-				
+
 				Button["1d"].MouseLeave:Connect(function()
 					Button.Hover = false
-					
+
 					if not Button.MouseDown then
 						Library:tween(Button["1f"], {Color = Color3.fromRGB(82, 82, 82)})
 					end
 				end)
-				
+
 				uis.InputBegan:Connect(function(input, gpe)
 					if gpe then return end
-					
+
 					if input.UserInputType == Enum.UserInputType.MouseButton1 and Button.Hover then
 						Button.MouseDown = true
 						Library:tween(Button["1d"], {BackgroundColor3 = Color3.fromRGB(57, 57, 57)})
@@ -428,13 +429,13 @@ function Library:Init(options)
 						options.callback()
 					end
 				end)
-				
+
 				uis.InputEnded:Connect(function(input, gpe)
 					if gpe then return end
 
 					if input.UserInputType == Enum.UserInputType.MouseButton1 then
 						Button.MouseDown = false
-						
+
 						if Button.Hover then
 							Library:tween(Button["1d"], {BackgroundColor3 = Color3.fromRGB(27, 27, 27)})
 							Library:tween(Button["1f"], {Color = Color3.fromRGB(102, 102, 102)})
@@ -445,17 +446,17 @@ function Library:Init(options)
 					end
 				end)
 			end
-			
+
 			return Button
 		end
-		
+
 		function Tab:Warning(options)
 			options = Library:validate({
 				message = "Preview Warning"
 			}, options or {})
-			
+
 			local Warning = {}
-			
+
 			-- Render
 			do
 
@@ -473,7 +474,7 @@ function Library:Init(options)
 				Warning["26"] = Instance.new("UIStroke", Warning["24"]);
 				Warning["26"]["Color"] = Color3.fromRGB(166, 138, 12);
 				Warning["26"]["ApplyStrokeMode"] = Enum.ApplyStrokeMode.Border;
-				
+
 
 				-- StarterGui.MyLibrary.Main.ContentContainer.HomeTab.Warning.Title
 				Warning["27"] = Instance.new("TextLabel", Warning["24"]);
@@ -488,7 +489,7 @@ function Library:Init(options)
 				Warning["27"]["BackgroundTransparency"] = 1;
 				Warning["27"]["TextWrapped"] = true
 				Warning["27"]["TextYAlignment"] = Enum.TextYAlignment.Top
-				
+
 				-- StarterGui.MyLibrary.Main.ContentContainer.HomeTab.Warning.Title.UIPadding
 				Warning["28"] = Instance.new("UIPadding", Warning["27"]);
 				Warning["28"]["PaddingLeft"] = UDim.new(0, 20);
@@ -510,38 +511,38 @@ function Library:Init(options)
 				Warning["2a"]["PaddingBottom"] = UDim.new(0, 6);
 				Warning["2a"]["PaddingLeft"] = UDim.new(0, 6);
 			end
-			
+
 			-- Methods
 			function Warning:SetText(text)
 				options.message = text
 				Warning:_update()
 			end
-			
+
 			function Warning:_update()
 				Warning["27"].Text = options.message
-				
+
 				Warning["27"].Size = UDim2.new(Warning["27"].Size.X.Scale, Warning["27"].Size.X.Offset, 0, math.huge)
 				Warning["27"].Size = UDim2.new(Warning["27"].Size.X.Scale, Warning["27"].Size.X.Offset, 0, Warning["27"].TextBounds.Y)
 				Library:tween(Warning["24"], {Size = UDim2.new(Warning["24"].Size.X.Scale, Warning["24"].Size.X.Offset, 0, Warning["27"].TextBounds.Y + 12)})
 			end
-			
-			
+
+
 			Warning:_update()
 			return Warning
 		end
-		
+
 		function Tab:Toggle(options)
 			options = Library:validate({
 				title = "Preview Toggle",
 				callback = function() end
 			}, options or {})
-			
+
 			local Toggle = {
 				Hover = false,
 				MouseDown = false,
 				State = false
 			}
-			
+
 			-- Render
 			do
 				-- StarterGui.MyLibrary.Main.ContentContainer.HomeTab.ToggleInactive
@@ -606,7 +607,7 @@ function Library:Init(options)
 				Toggle["5e"]["BackgroundTransparency"] = 1;
 				Toggle["5e"]["Position"] = UDim2.new(0.5, 0, 0.5, 0);
 			end
-			
+
 			-- Methods
 			do
 				function Toggle:Toggle(b)
@@ -615,7 +616,7 @@ function Library:Init(options)
 					else
 						Toggle.State = b
 					end
-					
+
 					if Toggle.State then
 						Library:tween(Toggle["5b"], {BackgroundColor3 = Color3.fromRGB(115, 191, 92)})
 						Library:tween(Toggle["5e"], {ImageTransparency = 0})
@@ -624,11 +625,11 @@ function Library:Init(options)
 						Library:tween(Toggle["5e"], {ImageTransparency = 1})
 					end
 
-					
+
 					options.callback(Toggle.State)
 				end
 			end
-			
+
 			-- Logic
 			do
 				Toggle["56"].MouseEnter:Connect(function()
@@ -672,10 +673,10 @@ function Library:Init(options)
 					end
 				end)				
 			end
-			
+
 			return Toggle
 		end
-		
+
 		function Tab:Slider(options)
 			options = Library:validate({
 				title = "Preview Slider",
@@ -691,7 +692,7 @@ function Library:Init(options)
 				Connection = nil,
 				Options = options
 			}
-			
+
 			-- Render
 			do
 				-- StarterGui.MyLibrary.Main.ContentContainer.HomeTab.Slider
@@ -769,13 +770,13 @@ function Library:Init(options)
 				Slider["44"] = Instance.new("UICorner", Slider["43"]);
 				Slider["44"]["CornerRadius"] = UDim.new(0, 4);
 			end
-			
+
 			-- Methods
 			function Slider:SetValue(v)
 				if v == nil then
 					local percentage = math.clamp((mouse.X - Slider["40"].AbsolutePosition.X) / (Slider["40"].AbsoluteSize.X), 0, 1)
 					local value = math.floor(((options.max - options.min) * percentage) + options.min)
-					
+
 					Slider["3f"].Text = tostring(value)
 					Slider["43"].Size = UDim2.fromScale(percentage, 1)
 				else
@@ -784,11 +785,11 @@ function Library:Init(options)
 				end
 				options.callback(Slider:GetValue())
 			end
-			
+
 			function Slider:GetValue()
 				return tonumber(Slider["3f"].Text)				
 			end
-			
+
 			-- Logic
 			do
 				Slider["3a"].MouseEnter:Connect(function()
@@ -818,7 +819,7 @@ function Library:Init(options)
 						Library:tween(Slider["3c"], {Color = Color3.fromRGB(200, 200, 200)})
 						Library:tween(Slider["42"], {Color = Color3.fromRGB(200, 200, 200)})
 						Library:tween(Slider["43"], {BackgroundColor3 = Color3.fromRGB(200, 200, 200)})
-						
+
 						if not Slider.Connection then
 							Slider.Connection = runService.RenderStepped:Connect(function()
 								Slider:SetValue()
@@ -844,23 +845,23 @@ function Library:Init(options)
 							Library:tween(Slider["42"], {Color = Color3.fromRGB(82, 82, 82)})
 							Library:tween(Slider["43"], {BackgroundColor3 = Color3.fromRGB(82, 82, 82)})
 						end
-						
+
 						if Slider.Connection then Slider.Connection:Disconnect() end
 						Slider.Connection = nil
 					end
 				end)
 			end
-			
+
 			return Slider
 		end
-		
+
 		function Tab:Dropdown(options)
 			options = Library:validate({
 				title = "Preview Slider",
 				callback = function(v) print(v) end,
 				items = {}
 			}, options or {})
-			
+
 			local Dropdown = {
 				Items = {
 					["id"] = { 
@@ -872,7 +873,7 @@ function Library:Init(options)
 				Hover = false,
 				HoveringItem = false
 			}
-			
+
 			-- Render
 			do
 				-- StarterGui.MyLibrary.Main.ContentContainer.HomeTab.Dropdown
@@ -934,7 +935,7 @@ function Library:Init(options)
 				Dropdown["4c"]["Padding"] = UDim.new(0, 4);
 				Dropdown["4c"]["SortOrder"] = Enum.SortOrder.LayoutOrder;
 			end
-			
+
 			-- Methods
 			do
 				function Dropdown:Add(id, value)
@@ -942,11 +943,11 @@ function Library:Init(options)
 						Hover = false,
 						MouseDown = false
 					}
-					
+
 					if Dropdown.Items[id] ~= nil then
 						return
 					end
-					
+
 					Dropdown.Items[id] = {
 						instance = {},
 						value = value
@@ -969,7 +970,7 @@ function Library:Init(options)
 					-- StarterGui.MyLibrary.Main.ContentContainer.HomeTab.Dropdown.OptionHolder.Inactive Option.UICorner
 					Dropdown.Items[id].instance["4f"] = Instance.new("UICorner", Dropdown.Items[id].instance["4d"]);
 					Dropdown.Items[id].instance["4f"]["CornerRadius"] = UDim.new(0, 2);
-					
+
 					Dropdown.Items[id].instance["4d"].MouseEnter:Connect(function()
 						Item.Hover = true
 						Dropdown.HoveringItem = true
@@ -988,7 +989,7 @@ function Library:Init(options)
 
 					uis.InputBegan:Connect(function(input, gpe)
 						if gpe then return end
-						
+
 						if Dropdown.Items[id] == nil then return end
 
 						if input.UserInputType == Enum.UserInputType.MouseButton1 and Item.Hover then
@@ -1002,7 +1003,7 @@ function Library:Init(options)
 
 					uis.InputEnded:Connect(function(input, gpe)
 						if gpe then return end
-						
+
 						if Dropdown.Items[id] == nil then return end
 
 						if input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -1038,7 +1039,7 @@ function Library:Init(options)
 
 				function Dropdown:Toggle()
 					Dropdown.Open = not Dropdown.Open
-					
+
 					if not Dropdown.Open then
 						Library:tween(Dropdown["45"], {Size = UDim2.new(1, 0, 0, 30)}, function()
 							Dropdown["4b"].Visible = false
@@ -1050,13 +1051,13 @@ function Library:Init(options)
 								count += 1
 							end
 						end
-						
+
 						Dropdown["4b"].Visible = true
 						Library:tween(Dropdown["45"], {Size = UDim2.new(1, 0, 0, 30 + (count * 16) + 1)})
 					end
 				end
 			end
-			
+
 			-- Logic
 			do
 				Dropdown["45"].MouseEnter:Connect(function()
@@ -1080,7 +1081,7 @@ function Library:Init(options)
 						Dropdown.MouseDown = true
 						Library:tween(Dropdown["45"], {BackgroundColor3 = Color3.fromRGB(57, 57, 57)})
 						Library:tween(Dropdown["47"], {Color = Color3.fromRGB(200, 200, 200)})
-						
+
 						if not Dropdown.HoveringItem then
 							Dropdown:Toggle()
 						end
@@ -1103,48 +1104,16 @@ function Library:Init(options)
 					end
 				end)
 			end
-			
-			
+
+
 			return Dropdown
 		end
-		
-		
-		
+
+
+
 		return Tab
 	end
-	
+
 	return GUI
 end
-
-
-local main = Library:Init {
-	name = "custom name"
-}
-
-local tab = main:Tab()
-
-
-local warning = tab:Warning({message = "I am a warning."})
-local btn = tab:Button({ callback = function() warning:SetText("something really long something really long something really long something really long something really long something really long something really long something really long something really long something really long ")
-end })
-local slider = tab:Slider()
-
-local tog = tab:Toggle({
-	callback = function(v)
-		print(v)
-	end,
-	title = "hello"
-})
-
-local btn2 = tab:Button({callback = function() tog:Toggle(false) end})
-local d = tab:Dropdown({
-	title = "hello",
-	callback = function(v)
-		print(v .. " was clicked")
-	end,
-})
-d:Add("bob", 1)
-d:Add("bob2", 2)
-d:Add("bob3", 3)
-wait(3)
-d:Clear()
+return UILib
