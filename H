@@ -1,0 +1,467 @@
+--!strict
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+--[[
+
+The license applies unless you're Roblox Corporation.
+Creative Commons Attribution-NonCommercial (CC BY-NC)
+
+CREATOR: InsanityFE4R
+REVISED: Gemini
+ORIGINAL DATE: 13/09/2024
+LAST UPDATE: 16/04/2025 -- Added distance compensation, local attachment offset calculation.
+
+DESCRIPTION:
+This script tracks specified BaseParts (intended for bullets) in a container.
+It calculates a target position based on screen-space movement dynamics (compensated
+for distance), applies this position to "AttachmentLong", and dynamically adjusts
+the width of "BeamLong" based on the calculated trail magnitude ("blurriness").
+The actual UI visualization is disabled by default.
+
+v3 Changes:
+- Modified AttachmentLong positioning when UI is disabled. It now calculates a
+  local offset based on the world-space trail direction and length, allowing
+  for scaling and a base offset along the trail direction relative to the bullet.
+- Added configuration options: Attachment_Offset_Multiplier, Attachment_Base_Offset_Along_Trail.
+
+]]
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+--[[ SERVICES ]]
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
+local Debris = game:GetService("Debris")
+local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+
+local spr = require(script.Parent.spr)-- Use pcall for safety
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+--[[ CONTENT ]]
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+local Camera: Camera = Workspace.CurrentCamera
+
+-- Find the container where ACTIVE bullet parts reside
+-- IMPORTANT: Verify this path. Using "Cache" as per your last known configuration.
+local SPH_Workspace = Workspace:WaitForChild("SPH_Workspace")
+local BulletContainer = SPH_Workspace:WaitForChild("Cache") -- Verify if this should be "Projectiles" or "Cache"
+
+-- ScreenGui reference - needed only if EnableVisualizerUI is true
+local ScreenGui = script.Parent :: ScreenGui
+if not ScreenGui:IsA("ScreenGui") then
+	warn("Script's parent should be a ScreenGui! Creating fallback.")
+	ScreenGui = Instance.new("ScreenGui", PlayerGui)
+	ScreenGui.Name = "BulletTrackerGui_Fallback"
+	ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	script.Parent = ScreenGui -- Reparent the script if necessary
+end
+ScreenGui.ResetOnSpawn = false
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+--[[ CONFIGURATION ]]
+local Configuration: any = {
+	-- Core Calculation Modifiers (Influence screen offset length)
+	Screen_Movement_Modifier =0,    -- Base multiplier for screen movement (pixels/frame)
+	Camera_Movement_Modifier = 160,  -- Base multiplier for camera movement (studs/frame)
+
+	-- Distance Compensation Configuration
+	Distance_Compensation_Enabled = true, -- Set to false to disable distance scaling
+	Distance_Scale_Start = 100,      -- Distance (studs) at which scaling starts (multiplier > 1)
+	Distance_Scale_Max_Effect = 200, -- Distance (studs) where scaling reaches maximum effect
+	Max_Distance_Multiplier = 10,    -- Maximum multiplier applied to screen movement effect at or beyond Distance_Scale_Max_Effect
+
+	-- Limits for Calculated Trail Offset Length (in screen pixels, AFTER distance compensation)
+	Maximum_Trail_Offset_Length = 5000, -- Max visual length on screen
+	Minimum_Trail_Offset_Length = 5,    -- Min visual length on screen
+
+	-- *** NEW: Attachment Local Offset Configuration (Used when EnableVisualizerUI = false) ***
+	-- Controls how AttachmentLong is positioned relative to the bullet part.
+	Attachment_Offset_Multiplier = 1.0, -- Multiplies the calculated world-space trail length. Increase to make the attachment further away based on speed/camera movement.
+	Attachment_Base_Offset_Along_Trail = 0.5, -- Base distance (studs) to offset AttachmentLong along the calculated trail direction (relative to the bullet).
+
+	-- Beam Width Scaling Configuration
+	BaseBeamWidth0 = 1.5,        -- Default width of the beam at AttachmentBase
+	BaseBeamWidth1 = 0.5,        -- Default width of the beam at AttachmentLong
+	MinWidthMultiplier = 1.0,    -- Width multiplier at Minimum_Trail_Offset_Length
+	MaxWidthMultiplier = 15,    -- Width multiplier at Maximum_Trail_Offset_Length
+
+	-- Flag to enable/disable actual UI drawing
+	EnableVisualizerUI = false, -- Set to true to draw UI elements instead of moving AttachmentLong
+
+	-- SPR animation parameters (Only used if EnableVisualizerUI = true)
+	SPR_Damping = 10,
+	SPR_Frequency = 20,
+
+	-- Visualizer appearance (Only used if EnableVisualizerUI = true)
+	Line_Color = Color3.fromRGB(255, 255, 255),
+	Line_Thickness = 1,
+	Circle_Color = Color3.fromRGB(255, 255, 255),
+	Circle_Transparency = 1,
+	Circle_Outline_Color = Color3.fromRGB(255, 255, 255),
+	Circle_Outline_Thickness = 1.5,
+	Circle_Relative_Size = 0.25,
+	Label_Enabled = false,
+	Label_Text_Color = Color3.fromRGB(255, 255, 255),
+	Label_Font = Font.fromName("Rajdhani", Enum.FontWeight.Regular, Enum.FontStyle.Normal),
+
+	-- Performance: Max number of tracked items
+	Max_Trackers = 0, -- Set to 0 for unlimited (within reason)
+}
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+--[[ STATE VARIABLES ]]
+local TrackedParts: { [BasePart]: { UI: Frame?, PrevScreenPos: Vector2, PrevWorldPos: Vector3 } } = {}
+local ActiveTrackerCount = 0
+local PreviousCameraCFrame: CFrame? = nil
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+--[[ VISUALIZER UI CREATION FUNCTION (Only called if EnableVisualizerUI = true) ]]
+local function Create_Single_Visualizer_UI(): Frame
+	-- Create UI elements (Frame, Line, Circle, Label etc.)
+	local uniqueId = HttpService:GenerateGUID(false)
+	local Container: Frame = Instance.new("Frame"); Container.Name = "Visualizer_" .. uniqueId; Container.BackgroundTransparency = 1; Container.BorderSizePixel = 0; Container.AnchorPoint = Vector2.new(0.5, 0.5); Container.Size = UDim2.new(0, 100, 0, 100); Container.Position = UDim2.new(0.5, 0, 0.5, 0); Container.ZIndex = 10; Container.Visible = false
+	local Visualisation_Hinge: Frame = Instance.new("Frame", Container); Visualisation_Hinge.Name = "Visualisation_Hinge"; Visualisation_Hinge.AnchorPoint = Vector2.new(0.5, 0.5); Visualisation_Hinge.BackgroundTransparency = 1; Visualisation_Hinge.Size = UDim2.new(0, 0, 0, 0); Visualisation_Hinge.Position = UDim2.new(0.5, 0, 0.5, 0); Visualisation_Hinge.Rotation = 0; Visualisation_Hinge.ZIndex = 12
+	local Visualisation_Hinge_Line: Frame = Instance.new("Frame", Visualisation_Hinge); Visualisation_Hinge_Line.Name = "Visualisation_Hinge_Line"; Visualisation_Hinge_Line.AnchorPoint = Vector2.new(0.5, 0); Visualisation_Hinge_Line.BackgroundColor3 = Configuration.Line_Color; Visualisation_Hinge_Line.BackgroundTransparency = 0; Visualisation_Hinge_Line.Position = UDim2.new(0.5, 0, 0.5, 0); Visualisation_Hinge_Line.Size = UDim2.new(0, Configuration.Line_Thickness, 0, Configuration.Minimum_Trail_Offset_Length); Visualisation_Hinge_Line.ZIndex = 13
+	local Circle: Frame = Instance.new("Frame", Container); Circle.Name = "Center_Circle"; Circle.BackgroundColor3 = Configuration.Circle_Color; Circle.BackgroundTransparency = Configuration.Circle_Transparency; Circle.AnchorPoint = Vector2.new(0.5, 0.5); Circle.Size = UDim2.new(Configuration.Circle_Relative_Size, 0, Configuration.Circle_Relative_Size, 0); Circle.Position = UDim2.new(0.5, 0, 0.5, 0); Circle.ZIndex = 14
+	local Corner_Radius: UICorner = Instance.new("UICorner", Circle); Corner_Radius.CornerRadius = UDim.new(0.5, 0)
+	local Corner_Outline: UIStroke = Instance.new("UIStroke", Circle); Corner_Outline.Color = Configuration.Circle_Outline_Color; Corner_Outline.Thickness = Configuration.Circle_Outline_Thickness
+	local Aspect_Ratio: UIAspectRatioConstraint = Instance.new("UIAspectRatioConstraint", Circle); Aspect_Ratio.AspectRatio = 1.0
+	if Configuration.Label_Enabled then
+		local Info_Label: TextLabel = Instance.new("TextLabel", Container); Info_Label.Name = "Info_Label"; Info_Label.AnchorPoint = Vector2.new(0.5, 0); Info_Label.Position = UDim2.new(0.5, 0, 0.625, 0); Info_Label.Size = UDim2.new(1, 0, 0.25, 0); Info_Label.BackgroundTransparency = 1; Info_Label.ZIndex = 16; Info_Label.TextColor3 = Configuration.Label_Text_Color; Info_Label.FontFace = Configuration.Label_Font; Info_Label.TextScaled = true; Info_Label.Text = ""
+	end
+	return Container
+end
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+--[[ BULLET PART TRACKING FUNCTIONS ]]
+local function AddBulletTracker(bulletPart: BasePart)
+	if not bulletPart or not bulletPart:IsA("BasePart") then return end
+
+	-- Check if max trackers limit is reached
+	if Configuration.Max_Trackers > 0 and ActiveTrackerCount >= Configuration.Max_Trackers then
+		-- warn("Max trackers reached (" .. Configuration.Max_Trackers .. "), not tracking new part:", bulletPart.Name)
+		return
+	end
+	-- Check if already tracking
+	if TrackedParts[bulletPart] then return end
+
+	local visualizerUI: Frame? = nil
+	if Configuration.EnableVisualizerUI then
+		visualizerUI = Create_Single_Visualizer_UI()
+		visualizerUI.Parent = ScreenGui
+	end
+
+	-- Initialize tracking data for the part
+	TrackedParts[bulletPart] = {
+		UI = visualizerUI,
+		PrevScreenPos = Vector2.new(-1, -1), -- Initialize as off-screen
+		PrevWorldPos = bulletPart.Position
+	}
+	ActiveTrackerCount += 1
+
+	-- Initialize beam width if UI is disabled
+	if not Configuration.EnableVisualizerUI then
+		local beamLong = bulletPart:FindFirstChild("BeamLong") :: Beam
+		if beamLong then
+			beamLong.Width0 = Configuration.BaseBeamWidth0
+			beamLong.Width1 = Configuration.BaseBeamWidth1
+		end
+		-- Initialize AttachmentLong position (optional, could set to a default)
+		local attachmentLong = bulletPart:FindFirstChild("AttachmentLong") :: Attachment
+		if attachmentLong then
+			-- Set an initial reasonable local position if desired
+			-- attachmentLong.Position = Vector3.new(0, 0, Configuration.Attachment_Base_Offset_Along_Trail)
+		end
+	end
+end
+
+local function RemoveBulletTracker(bulletPart: BasePart)
+	if not bulletPart then return end
+	local data = TrackedParts[bulletPart]
+	if data then
+		TrackedParts[bulletPart] = nil
+		-- Destroy the UI element if it exists
+		if data.UI then data.UI:Destroy() end
+		ActiveTrackerCount -= 1
+	end
+end
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+--[[ MAIN UPDATE FUNCTION (Called every frame) ]]
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+local function UpdateAllTrackers(Delta_Time: number)
+	-- Get current camera CFrame
+	local currentCameraCFrame = Camera.CFrame
+	local cameraPositionDelta = 0
+	-- Calculate camera movement since last frame
+	if PreviousCameraCFrame then
+		cameraPositionDelta = (currentCameraCFrame.Position - PreviousCameraCFrame.Position).Magnitude
+	end
+
+	local partsToRemove: {BasePart} = {} -- List to store parts that need untracking
+
+	-- Iterate through all tracked parts
+	for bulletPart, data in pairs(TrackedParts) do
+		-- Validate the part still exists and is in the correct container
+		if not bulletPart or not bulletPart.Parent or bulletPart.Parent ~= BulletContainer then
+			table.insert(partsToRemove, bulletPart) -- Mark for removal
+			continue
+		end
+
+		local visualizerUI = data.UI
+		local previousScreenPos = data.PrevScreenPos
+		local previousWorldPos = data.PrevWorldPos
+
+		local currentWorldPos: Vector3 = bulletPart.Position
+
+		-- Project world position to screen coordinates
+		local isOnScreen: boolean
+		local currentScreenPosVec3: Vector3
+		local success, result = pcall(Camera.WorldToViewportPoint, Camera, currentWorldPos)
+		if success then
+			currentScreenPosVec3 = result :: Vector3
+			isOnScreen = currentScreenPosVec3.Z > 0 -- Check if in front of the camera
+		else
+			warn("WorldToViewportPoint failed for:", bulletPart:GetFullName())
+			isOnScreen = false
+			currentScreenPosVec3 = Vector3.zero -- Default value if projection fails
+		end
+
+		local currentScreenPos = Vector2.new(currentScreenPosVec3.X, currentScreenPosVec3.Y)
+
+		local rotationAngleDeg = 0 -- For UI rotation
+		local targetTrailOffsetLength = Configuration.Minimum_Trail_Offset_Length -- Visual length on screen
+
+		if isOnScreen then
+			-- Calculate screen space movement
+			local screenDifference = Vector2.zero
+			if previousScreenPos.X >= 0 then -- Ensure previous position was valid
+				screenDifference = currentScreenPos - previousScreenPos
+			end
+			local screenMovementMagnitude = screenDifference.Magnitude
+
+			-- Apply Distance Compensation to screen movement magnitude
+			local distanceMultiplier = 1.0
+			if Configuration.Distance_Compensation_Enabled then
+				local distanceFromCamera = (currentCameraCFrame.Position - currentWorldPos).Magnitude
+				local startDist = Configuration.Distance_Scale_Start
+				local maxDist = Configuration.Distance_Scale_Max_Effect
+				local maxMult = Configuration.Max_Distance_Multiplier
+
+				if maxDist > startDist then -- Avoid division by zero if start/max are the same
+					-- Calculate how far between start and max distance the bullet is
+					local normalizedDist = math.clamp((distanceFromCamera - startDist) / (maxDist - startDist), 0, 1)
+					-- Linearly interpolate the multiplier
+					distanceMultiplier = 1.0 + normalizedDist * (maxMult - 1.0)
+				elseif distanceFromCamera >= maxDist then
+					distanceMultiplier = maxMult -- Apply max multiplier if at or beyond max range
+				end
+			end
+			local scaledScreenMovementMag = screenMovementMagnitude * distanceMultiplier
+
+			-- Calculate rotation angle based on screen movement direction
+			if screenMovementMagnitude > 0.1 then -- Threshold to avoid jitter with small movements
+				rotationAngleDeg = math.deg(math.atan2(screenDifference.Y, screenDifference.X)) + 90 -- +90 for UI alignment
+			elseif visualizerUI then -- If no movement, maintain previous rotation for UI
+				local hinge = visualizerUI:FindFirstChild("Visualisation_Hinge")
+				if hinge then rotationAngleDeg = hinge.Rotation end
+			end
+
+			-- Calculate the target visual trail length based on screen and camera movement
+			local screenEffect = scaledScreenMovementMag * Configuration.Screen_Movement_Modifier
+			local cameraEffect = cameraPositionDelta * Configuration.Camera_Movement_Modifier
+			local combinedLength = screenEffect + cameraEffect
+			targetTrailOffsetLength = math.clamp(
+				combinedLength,
+				Configuration.Minimum_Trail_Offset_Length,
+				Configuration.Maximum_Trail_Offset_Length
+			)
+
+			-- === Update AttachmentLong Position AND Beam Width (if UI is DISABLED) ===
+			if not Configuration.EnableVisualizerUI then
+				local attachmentLong = bulletPart:FindFirstChild("AttachmentLong") :: Attachment -- Find the attachment
+				local beamLong = bulletPart:FindFirstChild("BeamLong") :: Beam             -- Find the beam
+
+				if attachmentLong then
+					-- 1. Calculate the screen position of the trail's end point
+					local screenAngleRad = math.rad(rotationAngleDeg - 90) -- Convert rotation back to standard angle
+					local offsetVector = Vector2.new(math.cos(screenAngleRad), math.sin(screenAngleRad)) * targetTrailOffsetLength
+					local endPointScreenPos = currentScreenPos + offsetVector
+
+					-- 2. Project this screen end point back into world space at the bullet's depth
+					local targetWorldPos: Vector3? = nil
+					local raySuccess, endRay = pcall(Camera.ViewportPointToRay, Camera, endPointScreenPos.X, endPointScreenPos.Y)
+					if raySuccess and endRay then
+						local bulletDepth = currentScreenPosVec3.Z -- Use the Z component from WorldToViewportPoint
+						targetWorldPos = endRay.Origin + endRay.Direction.Unit * bulletDepth
+					end
+
+					if targetWorldPos then
+						-- 3. Calculate World-Space Trail Direction and Length
+						local worldTrailVector = targetWorldPos - currentWorldPos
+						local worldTrailLength = worldTrailVector.Magnitude
+						local worldTrailDirection = worldTrailVector.Unit -- Direction from bullet towards trail end
+
+						-- 4. Convert World Direction to Bullet's Local Space
+						local localTrailDirection = bulletPart.CFrame:VectorToObjectSpace(worldTrailDirection)
+
+						-- 5. Calculate Final Local Position for AttachmentLong
+						local desiredLocalMagnitude = Configuration.Attachment_Base_Offset_Along_Trail + (worldTrailLength * Configuration.Attachment_Offset_Multiplier)
+						local targetLocalPosition = localTrailDirection * desiredLocalMagnitude
+
+						-- 6. Set the Attachment's LOCAL Position
+						attachmentLong.Position = targetLocalPosition
+
+						-- *** Update Beam Width (based on screen-space visual length) ***
+						if beamLong then
+							local minLength = Configuration.Minimum_Trail_Offset_Length
+							local maxLength = Configuration.Maximum_Trail_Offset_Length
+							local minMult = Configuration.MinWidthMultiplier
+							local maxMult = Configuration.MaxWidthMultiplier
+
+							-- Normalize the visual length between min and max
+							local normalizedLength = 0
+							if maxLength > minLength then -- Avoid division by zero
+								normalizedLength = math.clamp((targetTrailOffsetLength - minLength) / (maxLength - minLength), 0, 1)
+							elseif targetTrailOffsetLength >= maxLength then
+								normalizedLength = 1 -- At or beyond max length
+							end
+
+							-- Interpolate the width multiplier based on normalized length
+							local currentMultiplier = minMult + normalizedLength * (maxMult - minMult)
+							local targetWidth0 = Configuration.BaseBeamWidth0 * currentMultiplier
+							local targetWidth1 = Configuration.BaseBeamWidth1 * currentMultiplier
+
+							-- Apply the calculated widths to the beam
+							beamLong.Width0 = targetWidth0
+							beamLong.Width1 = targetWidth1
+						end
+						-- *************************
+					else
+						-- Failed to calculate targetWorldPos, reset attachment position?
+						attachmentLong.Position = Vector3.zero -- Or maintain last known good position? Resetting might be safer.
+						if beamLong then -- Also reset beam width if calculation failed
+							beamLong.Width0 = Configuration.BaseBeamWidth0
+							beamLong.Width1 = Configuration.BaseBeamWidth1
+						end
+					end
+				end
+			end
+			-- ========================================================================
+
+			-- === Update Visualizer UI (Only if Enabled) ===
+			if Configuration.EnableVisualizerUI and visualizerUI then
+				-- Find UI components
+				local Visualisation_Hinge = visualizerUI:FindFirstChild("Visualisation_Hinge")
+				local Visualisation_Hinge_Line = Visualisation_Hinge and Visualisation_Hinge:FindFirstChild("Visualisation_Hinge_Line")
+				local Info_Label = Configuration.Label_Enabled and visualizerUI:FindFirstChild("Info_Label") or nil
+
+				if Visualisation_Hinge and Visualisation_Hinge_Line then
+					visualizerUI.Visible = true -- Make sure UI is visible
+					-- Position the container at the bullet's screen position
+					visualizerUI.Position = UDim2.fromOffset(currentScreenPos.X, currentScreenPos.Y)
+
+					-- Animate Hinge rotation and Line size using SPR module
+					spr.target(Visualisation_Hinge, Configuration.SPR_Damping, Configuration.SPR_Frequency, { Rotation = rotationAngleDeg })
+					spr.target(Visualisation_Hinge_Line, Configuration.SPR_Damping, Configuration.SPR_Frequency, { Size = UDim2.new(0, Configuration.Line_Thickness, 0, targetTrailOffsetLength) })
+
+					-- Update optional info label
+					if Info_Label then
+						local distanceFromCamera = (currentCameraCFrame.Position - currentWorldPos).Magnitude
+						local worldDifference: Vector3 = currentWorldPos - previousWorldPos
+						local worldMovementMagnitude: number = worldDifference.Magnitude
+						local speed = 0
+						if Delta_Time > 0 then speed = worldMovementMagnitude / Delta_Time end -- Calculate speed in studs/sec
+						(Info_Label :: TextLabel).Text = string.format("D:%.0f S:%.0f", distanceFromCamera, speed)
+					end
+				end
+			end
+			-- =========================================
+
+			-- Store current positions for the next frame's calculation
+			data.PrevScreenPos = currentScreenPos
+			data.PrevWorldPos = currentWorldPos
+
+		else -- Part is Off Screen
+			-- Mark previous screen position as invalid
+			data.PrevScreenPos = Vector2.new(-1, -1)
+			data.PrevWorldPos = currentWorldPos -- Still update world pos
+
+			-- Reset Beam width if UI is disabled
+			if not Configuration.EnableVisualizerUI then
+				local beamLong = bulletPart:FindFirstChild("BeamLong") :: Beam
+				if beamLong then
+					beamLong.Width0 = Configuration.BaseBeamWidth0 
+					beamLong.Width1 = Configuration.BaseBeamWidth1
+				end
+				local attachmentLong = bulletPart:FindFirstChild("AttachmentLong") :: Attachment
+				if attachmentLong then
+					-- Reset local position when off-screen
+					attachmentLong.Position = Vector3.zero -- Or a default like Vector3.new(0,0,Configuration.Attachment_Base_Offset_Along_Trail)
+				end
+			end
+
+			-- Reset and hide UI if UI is enabled
+			if Configuration.EnableVisualizerUI and visualizerUI then
+				visualizerUI.Visible = false -- Hide the UI container
+				local Visualisation_Hinge = visualizerUI:FindFirstChild("Visualisation_Hinge")
+				local Visualisation_Hinge_Line = Visualisation_Hinge and Visualisation_Hinge:FindFirstChild("Visualisation_Hinge_Line")
+				local Info_Label = Configuration.Label_Enabled and visualizerUI:FindFirstChild("Info_Label") or nil
+
+				-- Reset UI elements to default state (optional, but good practice)
+				if Visualisation_Hinge and Visualisation_Hinge_Line then
+					spr.target(Visualisation_Hinge, Configuration.SPR_Damping, Configuration.SPR_Frequency, { Rotation = Visualisation_Hinge.Rotation }) -- Stop rotation animation
+					spr.target(Visualisation_Hinge_Line, Configuration.SPR_Damping, Configuration.SPR_Frequency, { Size = UDim2.new(0, Configuration.Line_Thickness, 0, Configuration.Minimum_Trail_Offset_Length) }) -- Reset line size
+					if Info_Label then (Info_Label :: TextLabel).Text = "" end -- Clear label
+				end
+			end
+		end
+	end
+
+	-- Remove parts that were marked for removal
+	for _, bulletPart in ipairs(partsToRemove) do
+		RemoveBulletTracker(bulletPart)
+	end
+
+	-- Store the current camera CFrame for the next frame's delta calculation
+	PreviousCameraCFrame = currentCameraCFrame
+end
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+--[[ INITIALIZATION & EVENT CONNECTIONS ]]
+-- Handle parts already present in the container when the script starts
+if BulletContainer then
+	for _, child in ipairs(BulletContainer:GetChildren()) do
+		if child:IsA("BasePart") then
+			-- Use task.defer to avoid potential issues during initial setup
+			task.defer(AddBulletTracker, child)
+		end
+	end
+
+	-- Connect to ChildAdded to track new parts entering the container
+	BulletContainer.ChildAdded:Connect(function(child)
+		if child:IsA("BasePart") then
+			AddBulletTracker(child)
+		end
+	end)
+
+	-- Connect the main update function to RenderStepped for per-frame updates
+	RunService.RenderStepped:Connect(UpdateAllTrackers)
+
+	print("Bullet Trail Script Initialized - Tracking parts in:", BulletContainer:GetFullName(), "- UI Enabled:", Configuration.EnableVisualizerUI)
+else
+	warn("Bullet Trail Script Error: BulletContainer not found at", SPH_Workspace:GetFullName() .. ".Cache")
+end
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
